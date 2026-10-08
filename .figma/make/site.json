@@ -1,0 +1,10 @@
+{
+  "description": "This app provides real-time flood alerts, evacuation route planning, and family safety features, ensuring users stay informed and prepared during extreme weather events.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
