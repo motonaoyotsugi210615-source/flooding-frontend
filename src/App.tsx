@@ -156,7 +156,7 @@ function Icon({
   )
 }
 
-const navItems: { label: string icon: IconName }[] = [
+const navItems: { label: string ;icon: IconName }[] = [
   { label: "Overview", icon: "grid" },
   { label: "Live flood map", icon: "map" },
   { label: "Evacuation routes", icon: "route" },
