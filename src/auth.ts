@@ -1,8 +1,17 @@
+export type AccountProfile = "standard" | "accessibility" | "senior" | "kids"
+
+function normalizeProfile(profile: unknown): AccountProfile {
+  if (profile === "kids") return "kids"
+  if (profile === "senior" || profile === "accessibility") return "senior"
+  return "standard"
+}
+
 export type Account = {
   id: string
   name: string
   email: string
   username: string
+  profile: AccountProfile
 }
 
 type StoredAccount = Account & {
@@ -17,6 +26,7 @@ const demoAccount: Account = {
   name: "Aoi Sato",
   email: "aoi@example.jp",
   username: "aoi.sato",
+  profile: "standard",
 }
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000
 
@@ -32,6 +42,11 @@ function getAccounts(): StoredAccount[] {
         typeof account.email === "string" &&
         (typeof account.username === "string" ||
           typeof account.username === "undefined") &&
+        (typeof account.profile === "undefined" ||
+          account.profile === "standard" ||
+          account.profile === "accessibility" ||
+          account.profile === "senior" ||
+          account.profile === "kids") &&
         typeof account.salt === "string" &&
         typeof account.passwordHash === "string",
     )
@@ -45,6 +60,8 @@ function getAccounts(): StoredAccount[] {
       account.username ||
       account.email.split("@")[0].replace(/[^a-z0-9._]/gi, "") ||
       `member-${account.id.slice(0, 6)}`,
+    profile:
+      normalizeProfile(account.profile),
   }))
 }
 
@@ -54,6 +71,7 @@ function publicAccount(account: Account): Account {
     name: account.name,
     email: account.email,
     username: account.username,
+    profile: account.profile,
   }
 }
 
@@ -87,6 +105,7 @@ async function hashPassword(password: string, salt: string) {
 function saveSession(account: Account, remember: boolean) {
   const session = JSON.stringify({
     id: account.id,
+    profile: account.profile,
     expiresAt: Date.now() + SESSION_DURATION,
   })
   const storage = remember ? localStorage : sessionStorage
@@ -111,9 +130,18 @@ export function readSession(): Account | null {
       session.expiresAt < Date.now()
     )
       return null
-    if (session.id === "demo") return demoAccount
+    const profile =
+      session &&
+      typeof session === "object" &&
+      "profile" in session &&
+      (session.profile === "accessibility" ||
+        session.profile === "senior" ||
+        session.profile === "kids")
+        ? session.profile
+        : "standard"
+    if (session.id === "demo") return { ...demoAccount, profile }
     const account = getAccounts().find((account) => account.id === session.id)
-    return account ? publicAccount(account) : null
+    return account ? publicAccount({ ...account, profile: normalizeProfile(profile) }) : null
   } catch {
     return null
   }
@@ -125,6 +153,7 @@ export async function createAccount(
   email: string,
   password: string,
   remember: boolean,
+  profile: AccountProfile = "standard",
 ): Promise<Account> {
   name = name.trim()
   username = username.trim().toLowerCase().replace(/^@/, "")
@@ -156,6 +185,7 @@ export async function createAccount(
     name,
     email,
     username,
+    profile,
     salt,
     passwordHash: await hashPassword(password, salt),
   }
@@ -189,6 +219,40 @@ export async function signIn(
     )
   }
   return saveSession(account, remember)
+}
+
+export function updateAccountProfile(
+  account: Account,
+  profile: AccountProfile,
+): Account {
+  const updatedAccount = { ...account, profile }
+  if (account.id !== "demo") {
+    const accounts = getAccounts().map((storedAccount) =>
+      storedAccount.id === account.id
+        ? { ...storedAccount, profile }
+        : storedAccount,
+    )
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
+  }
+
+  for (const storage of [sessionStorage, localStorage]) {
+    const rawSession = storage.getItem(SESSION_KEY)
+    if (!rawSession) continue
+    try {
+      const session: unknown = JSON.parse(rawSession)
+      if (
+        session &&
+        typeof session === "object" &&
+        "id" in session &&
+        session.id === account.id
+      ) {
+        storage.setItem(SESSION_KEY, JSON.stringify({ ...session, profile }))
+      }
+    } catch {
+      // Keep the account profile updated even if a stale session is malformed.
+    }
+  }
+  return updatedAccount
 }
 
 export function enterDemo(): Account {

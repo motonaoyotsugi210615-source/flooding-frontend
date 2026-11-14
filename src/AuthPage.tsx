@@ -25,6 +25,7 @@ export default function AuthPage({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [profile, setProfile] = useState<Account["profile"]>("standard")
   const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -54,7 +55,7 @@ export default function AuthPage({
     try {
       const account =
         mode === "signup"
-          ? await createAccount(name, username, email, password, remember)
+          ? await createAccount(name, username, email, password, remember, profile)
           : await signIn(email, password, remember)
       onAuthenticated(account)
     } catch (error) {
@@ -400,22 +401,57 @@ export default function AuthPage({
                 )}
               </div>
               {mode === "signup" && (
-                <div className="auth-field">
-                  <label className="form-label" htmlFor="auth-confirm">
-                    {t("Confirm password")}
-                  </label>
-                  <input
-                    id="auth-confirm"
-                    className="text-input"
-                    type={showPassword ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    autoComplete="new-password"
-                    placeholder="Enter your password again"
-                    required
-                    maxLength={128}
-                  />
-                </div>
+                <>
+                  <div className="auth-field">
+                    <label className="form-label" htmlFor="auth-confirm">
+                      {t("Confirm password")}
+                    </label>
+                    <input
+                      id="auth-confirm"
+                      className="text-input"
+                      type={showPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder="Enter your password again"
+                      required
+                      maxLength={128}
+                    />
+                  </div>
+                  <div className="auth-field">
+                    <label className="form-label">Choose a mode</label>
+                    <div className="auth-mode-grid">
+                      {[
+                        {
+                          value: "standard",
+                          label: "Standard mode",
+                          hint: "Full view and all features",
+                        },
+                        {
+                          value: "senior",
+                          label: "Senior mode",
+                          hint: "Larger text and simpler actions",
+                        },
+                        {
+                          value: "kids",
+                          label: "Kids mode",
+                          hint: "Fewer steps and gentler instructions",
+                        },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`auth-mode-option ${profile === option.value ? "selected" : ""}`}
+                          aria-pressed={profile === option.value}
+                          onClick={() => setProfile(option.value as Account["profile"])}
+                        >
+                          <strong>{option.label}</strong>
+                          <span>{option.hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
               <label className="auth-remember">
                 <input

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import AuthPage from "./AuthPage"
-import { readSession, signOut } from "./auth"
-import type { Account } from "./auth"
+import { readSession, signOut, updateAccountProfile } from "./auth"
+import type { Account, AccountProfile } from "./auth"
 import { readLanguage, saveLanguage, translate } from "./i18n"
 import type { Language } from "./i18n"
 
@@ -158,7 +158,7 @@ function Icon({
   )
 }
 
-const navItems: { label: string icon: IconName }[] = [
+const navItems: { label: string; icon: IconName }[] = [
   { label: "Overview", icon: "grid" },
   { label: "Live flood map", icon: "map" },
   { label: "Evacuation routes", icon: "route" },
@@ -261,6 +261,7 @@ function FloodMap({
   route = false,
   family,
   onPlan,
+  onStartEvacuation,
   language,
   locationLabel,
 }: {
@@ -268,12 +269,14 @@ function FloodMap({
   route?: boolean
   family: FamilyMember[]
   onPlan: () => void
+  onStartEvacuation?: () => void
   language: Language
   locationLabel: string
 }) {
   const t = (text: string) => translate(language, text)
   const [zoom, setZoom] = useState(1)
   const [layers, setLayers] = useState(true)
+  const [trafficView, setTrafficView] = useState(false)
   const [selected, setSelected] = useState(false)
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null)
   const selectedMember = family.find(
@@ -364,6 +367,14 @@ function FloodMap({
             strokeWidth="38"
             fill="none"
           />
+          {trafficView && (
+            <g opacity="0.85">
+              <path d="M70 102 190 160 318 120 470 142 610 82 750 90 839 136" stroke="#ef776f" strokeWidth="4" strokeDasharray="7 7" fill="none" />
+              <path d="M86 280 230 248 348 300 500 260 621 308 804 272" stroke="#1f80a9" strokeWidth="4" strokeDasharray="7 7" fill="none" />
+              <circle cx="210" cy="140" r="4" fill="#ef776f" />
+              <circle cx="610" cy="298" r="4" fill="#1f80a9" />
+            </g>
+          )}
           <path
             d="M-30 366 184 322 389 289 583 235 927 245M75-20 150 97 222 266 259 458M500-20 531 116 593 274 669 460M725-20 702 116 717 300 770 460"
             fill="none"
@@ -593,6 +604,22 @@ function FloodMap({
           <Icon name="locate" size={17} />
         </button>
       </div>
+      <div className="map-layer-controls" aria-label={t("Map layers")}>
+        <button
+          type="button"
+          className={trafficView ? "active" : ""}
+          onClick={() => setTrafficView(!trafficView)}
+        >
+          {t("Traffic")}
+        </button>
+        <button
+          type="button"
+          className={layers ? "active" : ""}
+          onClick={() => setLayers(!layers)}
+        >
+          {t("Flood")}
+        </button>
+      </div>
       <button
         className={`layer-button ${layers ? "active" : ""}`}
         onClick={() => setLayers(!layers)}
@@ -610,7 +637,7 @@ function FloodMap({
             <div>
               <strong>{selectedMember.name}</strong>
               <small>{selectedMember.identifier}</small>
-              <span>Demo family location</span>
+              <span>{t("Demo family location")}</span>
             </div>
           </div>
           <span>{t(selectedMember.location)}</span>
@@ -621,7 +648,7 @@ function FloodMap({
           >
             {t(selectedMember.status)}
           </span>
-          <small>Last updated {selectedMember.time.toLowerCase()}</small>
+          <small>{t("Last updated")} {selectedMember.time.toLowerCase()}</small>
           <button
             className="popup-close"
             onClick={() => setSelectedFamily(null)}
@@ -642,7 +669,7 @@ function FloodMap({
               : "1.3 km from the affected area"}
           </span>
           <button onClick={onPlan}>
-            View evacuation options <Icon name="arrow" size={14} />
+            {t("View evacuation options")} <Icon name="arrow" size={14} />
           </button>
           <button
             className="popup-close"
@@ -661,6 +688,12 @@ function FloodMap({
           setSelectedFamily(null)
         }}
       />
+      {onStartEvacuation && (
+        <button className="primary-button map-start-evacuation" onClick={onStartEvacuation}>
+          {t("Start evacuation")}
+          <Icon name="arrow" size={15} />
+        </button>
+      )}
       <div className="map-legend">
         <span>
           <i className="legend-flood" /> {t("Flood warning")}
@@ -783,6 +816,11 @@ export default function App() {
       account={account}
       language={language}
       onLanguageChange={changeLanguage}
+      onProfileChange={(profile) =>
+        setAccount((current) =>
+          current ? updateAccountProfile(current, profile) : current,
+        )
+      }
       onSignOut={() => {
         try {
           signOut()
@@ -798,11 +836,13 @@ function Dashboard({
   account,
   language,
   onLanguageChange,
+  onProfileChange,
   onSignOut,
 }: {
   account: Account
   language: Language
   onLanguageChange: (language: Language) => void
+  onProfileChange: (profile: AccountProfile) => void
   onSignOut: () => void
 }) {
   const t = (text: string) => translate(language, text)
@@ -875,6 +915,64 @@ function Dashboard({
       "Notification" in window ? Notification.permission : "unsupported",
     )
   const [routeStarted, setRouteStarted] = useState(false)
+  const simplifiedMode =
+    account.profile === "accessibility" ||
+    account.profile === "senior" ||
+    account.profile === "kids"
+  const seniorMode =
+    account.profile === "accessibility" || account.profile === "senior"
+  const kidsMode = account.profile === "kids"
+  const visibleNavItems =
+    account.profile === "standard"
+      ? navItems
+      : navItems.filter(
+          (item) =>
+            !["Flood preparedness", "Offline maps"].includes(item.label) &&
+            !(kidsMode && item.label === "Evacuation routes"),
+        )
+  useEffect(() => {
+    if (!visibleNavItems.some((item) => item.label === page)) {
+      setPage("Overview")
+    }
+  }, [page, visibleNavItems])
+  const [distressActive, setDistressActive] = useState(false)
+  const rainfallProfiles = [
+    {
+      level: "Light rain",
+      rate: "15 mm/hr",
+      impact: "Drainage keeps up for now, but low roads can still become slick.",
+      risk: "Low",
+      tone: "mint",
+    },
+    {
+      level: "Moderate rain",
+      rate: "42 mm/hr",
+      impact: "Runoff rises quickly and slower routes may become harder to use.",
+      risk: "Elevated",
+      tone: "amber",
+    },
+    {
+      level: "Heavy rain",
+      rate: "78 mm/hr",
+      impact: "Flooding risk escalates sharply; evacuation timing matters most.",
+      risk: "Severe",
+      tone: "rose",
+    },
+  ]
+  const trafficOptions = [
+    {
+      name: "North embankment route",
+      time: "12 min",
+      traffic: "18% less traffic",
+      note: "More reliable for wheelchairs and slower-moving groups.",
+    },
+    {
+      name: "Komatsugawa connector",
+      time: "15 min",
+      traffic: "12% less traffic",
+      note: "Good alternative if the riverside road is congested.",
+    },
+  ]
   useEffect(() => {
     if (toast) {
       const id = setTimeout(() => setToast(""), 4500)
@@ -965,6 +1063,15 @@ function Dashboard({
         : "Your safe status is now visible in your demo family circle.",
     )
   }
+  function toggleDistressAlert() {
+    const next = !distressActive
+    setDistressActive(next)
+    setToast(
+      next
+        ? "Disability support request is active. Nearby users can offer help."
+        : "Disability support request was cleared.",
+    )
+  }
   const familyCard = (
     <section className="card family-card">
       <div className="card-header">
@@ -1029,10 +1136,19 @@ function Dashboard({
         {safe ? t("You're marked safe") : t("Mark myself as safe")}
         {safe && <Icon name="check" size={17} />}
       </button>
+      <button
+        className={`safe-button distress-button ${distressActive ? "checked-in" : ""}`}
+        onClick={toggleDistressAlert}
+      >
+        <Icon name="warning" size={18} />
+        {distressActive
+          ? t("Disability distress alert active")
+          : t("Request mobility assistance")}
+      </button>
       <p className="family-footnote">
-        {safe
-          ? "Your family can see your safe status."
-          : "Let your family know you're okay."}
+        {distressActive
+          ? "Nearby users can see your support need and offer assistance."
+          : "If you have a mobility or sensory disability, make it visible early."}
       </p>
     </section>
   )
@@ -1185,7 +1301,7 @@ function Dashboard({
         </a>
         <div className="workspace-label">{t("YOUR SAFETY COMPANION")}</div>
         <nav aria-label="Main navigation">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               key={item.label}
               className={`nav-item ${page === item.label ? "selected" : ""}`}
@@ -1299,7 +1415,11 @@ function Dashboard({
               </div>
               <h1>
                 {page === "Overview"
-                  ? t("Your safety, at a glance.")
+                  ? simplifiedMode
+                    ? account.profile === "kids"
+                      ? "Quick safety check"
+                      : "Easy safety view"
+                    : t("Your safety, at a glance.")
                   : page === "Live flood map"
                     ? t("A clearer view of what’s nearby.")
                     : page === "Evacuation routes"
@@ -1312,9 +1432,13 @@ function Dashboard({
               </h1>
               <p>
                 {page === "Overview"
-                  ? language === "ja"
-                    ? "周辺の最新状況と家族の安全を確認できます。"
-                    : "Here’s what’s happening around you and your family."
+                  ? simplifiedMode
+                    ? account.profile === "kids"
+                      ? "Check the map and tell a grown-up if you need help."
+                      : "See the key safety status and keep the next steps simple."
+                    : language === "ja"
+                      ? "周辺の最新状況と家族の安全を確認できます。"
+                      : "Here’s what’s happening around you and your family."
                   : page === "My family"
                     ? t("A little reassurance for the people who matter most.")
                     : page === "Flood preparedness"
@@ -1418,6 +1542,64 @@ function Dashboard({
                   </div>
                 </div>
               </div>
+              {!simplifiedMode && (
+                <div className="support-grid">
+                  <section className="card rainfall-card">
+                    <div className="card-header">
+                      <div className="section-title">
+                        <Icon name="cloud" size={19} />
+                        <h2>{t("Rain radar")}</h2>
+                      </div>
+                      <span className="live-pill">
+                        <span className="live-dot" /> LIVE
+                      </span>
+                    </div>
+                    <div className="rainfall-summary">
+                      <div>
+                        <strong>78 mm/hr</strong>
+                        <span>{t("Heavy rain")}</span>
+                      </div>
+                      <span className="risk-tag severe-risk">
+                        {t("Severe")}
+                      </span>
+                    </div>
+                    <div className="rainfall-list">
+                      {rainfallProfiles.map((profile) => (
+                        <div key={profile.level} className="rainfall-row">
+                          <div>
+                            <strong>{t(profile.level)}</strong>
+                            <span>{profile.rate}</span>
+                          </div>
+                          <small className={`tone-${profile.tone}`}>
+                            {t(profile.risk)}
+                          </small>
+                          <p>{t(profile.impact)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="card traffic-card">
+                    <div className="card-header">
+                      <div className="section-title">
+                        <Icon name="route" size={19} />
+                        <h2>{t("Traffic information")}</h2>
+                      </div>
+                    </div>
+                    <div className="traffic-list">
+                      {trafficOptions.map((route) => (
+                        <div key={route.name} className="traffic-row">
+                          <strong>{t(route.name)}</strong>
+                          <div>
+                            <span>{route.time}</span>
+                            <small>{route.traffic}</small>
+                          </div>
+                          <p>{t(route.note)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              )}
               <div className="dashboard-grid">
                 <section className="card map-card">
                   <div className="card-header">
@@ -1437,6 +1619,11 @@ function Dashboard({
                     language={language}
                     locationLabel={currentLocation}
                     onPlan={() => setModal("route")}
+                    onStartEvacuation={() => {
+                      setRouteStarted(true)
+                      setPage("Evacuation routes")
+                      setModal("route")
+                    }}
                   />
                   <div className="map-footer">
                     <div>
@@ -1570,6 +1757,11 @@ function Dashboard({
                 locationLabel={currentLocation}
                 route={page === "Evacuation routes"}
                 onPlan={() => setModal("route")}
+                onStartEvacuation={() => {
+                  setRouteStarted(true)
+                  setPage("Evacuation routes")
+                  setModal("route")
+                }}
               />
               <div className="info-note">
                 <Icon name="help" />
@@ -1843,6 +2035,18 @@ function Dashboard({
                   <Icon name="check" size={16} /> Arrive at the community center
                 </div>
               </div>
+              <div className="route-traffic">
+                <h4>{t("Lower-traffic routes")}</h4>
+                {trafficOptions.map((route) => (
+                  <div key={route.name} className="route-traffic-item">
+                    <div>
+                      <strong>{t(route.name)}</strong>
+                      <small>{route.note}</small>
+                    </div>
+                    <span>{route.time}</span>
+                  </div>
+                ))}
+              </div>
               <div className="info-note warning-note">
                 <Icon name="warning" size={19} />
                 <p>
@@ -1856,6 +2060,7 @@ function Dashboard({
                 onClick={() => {
                   setRouteStarted(true)
                   setPage("Evacuation routes")
+                  setModal(null)
                 }}
               >
                 {routeStarted ? (
@@ -2178,6 +2383,56 @@ function Dashboard({
                   </button>
                 </div>
               </div>
+              <div className="settings-mode-setting">
+                <div className="settings-mode-heading">
+                  <strong>
+                    {language === "ja" ? "表示モード" : "Display mode"}
+                  </strong>
+                  <p>
+                    {language === "ja"
+                      ? "使いやすい表示モードを選んでください。"
+                      : "Choose the view that feels easiest to use."}
+                  </p>
+                </div>
+                <div className="auth-mode-grid" role="radiogroup" aria-label={language === "ja" ? "表示モード" : "Display mode"}>
+                  {([
+                    {
+                      value: "standard",
+                      label: language === "ja" ? "標準" : "Standard",
+                      hint: language === "ja" ? "すべての機能を表示" : "All features",
+                    },
+                    {
+                      value: "senior",
+                      label: language === "ja" ? "シニア" : "Senior",
+                      hint: language === "ja" ? "見やすく、簡単な操作" : "Larger, simpler view",
+                    },
+                    {
+                      value: "kids",
+                      label: language === "ja" ? "キッズ" : "Kids",
+                      hint: language === "ja" ? "短く、やさしい案内" : "Short, gentle guidance",
+                    },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={account.profile === option.value}
+                      className={`auth-mode-option ${account.profile === option.value ? "selected" : ""}`}
+                      onClick={() => {
+                        onProfileChange(option.value)
+                        setToast(
+                          language === "ja"
+                            ? `${option.label}モードに切り替えました。`
+                            : `Switched to ${option.label} mode.`,
+                        )
+                      }}
+                    >
+                      <strong>{option.label}</strong>
+                      <span>{option.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="setting-row">
                 <div>
                   <strong>{t("Current location")}</strong>
@@ -2270,8 +2525,10 @@ function Dashboard({
               <div className="info-note">
                 <Icon name="shield" size={18} />
                 <p>
-                  MizuAlert is a prototype. Do not rely on its sample alerts,
-                  routes, or family locations in an emergency.
+                  Flooding can be especially dangerous for people with mobility,
+                  sensory, or cognitive disabilities. The distress function helps
+                  nearby users spot urgent support needs and coordinate quick
+                  assistance when a safe route is required.
                 </p>
               </div>
             </>
