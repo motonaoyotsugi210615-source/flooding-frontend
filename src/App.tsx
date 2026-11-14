@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import AuthPage from "./AuthPage"
-import { readSession, signOut, updateAccountProfile } from "./auth"
-import type { Account, AccountProfile } from "./auth"
+import {
+  readSession,
+  signOut,
+  updateAccountLocation,
+  updateAccountProfile,
+} from "./auth"
+import type {
+  Account,
+  AccountProfile,
+  LocationConsent,
+  RegisteredLocation,
+} from "./auth"
 import { readLanguage, saveLanguage, translate } from "./i18n"
 import type { Language } from "./i18n"
 
@@ -255,6 +265,10 @@ const japanDemoLocations = [
   "Koto, Tokyo",
   "Katsushika, Tokyo",
 ]
+
+function formatCoordinates({ latitude, longitude }: RegisteredLocation) {
+  return `${Math.abs(latitude).toFixed(4)}° ${latitude >= 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? "E" : "W"}`
+}
 
 function FloodMap({
   large = false,
@@ -821,6 +835,11 @@ export default function App() {
           current ? updateAccountProfile(current, profile) : current,
         )
       }
+      onLocationChange={(consent, location) =>
+        setAccount((current) =>
+          current ? updateAccountLocation(current, consent, location) : current,
+        )
+      }
       onSignOut={() => {
         try {
           signOut()
@@ -837,12 +856,17 @@ function Dashboard({
   language,
   onLanguageChange,
   onProfileChange,
+  onLocationChange,
   onSignOut,
 }: {
   account: Account
   language: Language
   onLanguageChange: (language: Language) => void
   onProfileChange: (profile: AccountProfile) => void
+  onLocationChange: (
+    consent: LocationConsent,
+    location?: RegisteredLocation,
+  ) => void
   onSignOut: () => void
 }) {
   const t = (text: string) => translate(language, text)
@@ -853,7 +877,10 @@ function Dashboard({
     .slice(0, 2)
     .toUpperCase()
   const [page, setPage] = useState("Overview")
-  const [modal, setModal] = useState<string | null>(null)
+  // Newly created accounts are asked to share their location on first load.
+  const [modal, setModal] = useState<string | null>(() =>
+    account.locationConsent === "pending" ? "location-permission" : null,
+  )
   const [safe, setSafe] = useState(false)
   const [toast, setToast] = useState("")
   const [family, setFamily] = useState(() =>
@@ -874,7 +901,14 @@ function Dashboard({
     }
   })
   const [savingArea, setSavingArea] = useState<string | null>(null)
-  const [currentLocation, setCurrentLocation] = useState(japanDemoLocations[0])
+  const registeredLocationLabel = account.location
+    ? formatCoordinates(account.location)
+    : null
+  const [currentLocation, setCurrentLocation] = useState(
+    registeredLocationLabel ?? japanDemoLocations[0],
+  )
+  const [locating, setLocating] = useState(false)
+  const [locationError, setLocationError] = useState("")
   const [stage, setStage] = useState("Before a flood")
   const [checked, setChecked] = useState<string[]>(() => {
     try {
@@ -1054,6 +1088,62 @@ function Dashboard({
           : "Notification permission was not granted.",
       )
     }
+  }
+  function requestDeviceLocation() {
+    if (!("geolocation" in navigator)) {
+      setLocationError("Location services are not supported on this device.")
+      return
+    }
+    if (!window.isSecureContext) {
+      setLocationError(
+        "Location sharing needs a secure connection (HTTPS or localhost).",
+      )
+      return
+    }
+    setLocating(true)
+    setLocationError("")
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const location: RegisteredLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: Math.round(position.coords.accuracy),
+          capturedAt: new Date().toISOString(),
+        }
+        setLocating(false)
+        try {
+          onLocationChange("granted", location)
+        } catch {
+          setLocationError("We couldn't save your location. Please try again.")
+          return
+        }
+        setCurrentLocation(formatCoordinates(location))
+        setModal(null)
+        setToast("Your location has been registered.")
+      },
+      (error) => {
+        setLocating(false)
+        if (error.code === error.PERMISSION_DENIED) {
+          onLocationChange("denied")
+          setModal(null)
+          setToast(
+            "Location access was blocked. You can enable it later in your browser settings.",
+          )
+        } else {
+          setLocationError(
+            error.code === error.TIMEOUT
+              ? "Finding your location took too long. Please try again."
+              : "Your location is unavailable right now. Please try again.",
+          )
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    )
+  }
+  function skipLocationPrompt() {
+    if (account.locationConsent === "pending") onLocationChange("skipped")
+    setLocationError("")
+    setModal(null)
   }
   function checkIn() {
     setSafe(!safe)
@@ -1961,7 +2051,9 @@ function Dashboard({
       {modal && (
         <Modal
           title={
-            modal === "route"
+            modal === "location-permission"
+              ? t("Share your location?")
+              : modal === "route"
               ? t("Plan your evacuation")
               : modal === "invite"
                 ? t("Bring your family together")
@@ -1989,6 +2081,10 @@ function Dashboard({
                 : undefined
           }
           onClose={() => {
+            if (modal === "location-permission") {
+              skipLocationPrompt()
+              return
+            }
             setModal(null)
             setRouteStarted(false)
           }}
@@ -2436,7 +2532,12 @@ function Dashboard({
               <div className="setting-row">
                 <div>
                   <strong>{t("Current location")}</strong>
-                  <p>{currentLocation} · Demo location</p>
+                  <p>
+                    {currentLocation} ·{" "}
+                    {currentLocation === registeredLocationLabel
+                      ? "Registered device location"
+                      : "Demo location"}
+                  </p>
                 </div>
                 <Icon name="pin" size={18} />
               </div>
@@ -2533,17 +2634,97 @@ function Dashboard({
               </div>
             </>
           )}
+          {modal === "location-permission" && (
+            <>
+              <div className="location-detail">
+                <Icon name="pin" size={32} />
+                <h3>{t("Get alerts for where you are")}</h3>
+                <p>
+                  {t(
+                    "MizuAlert uses your location to show nearby flood warnings, shelters, and evacuation routes. Your location is saved to your account on this browser only.",
+                  )}
+                </p>
+              </div>
+              {locationError && (
+                <div className="info-note warning-note" role="alert">
+                  <Icon name="warning" size={16} />
+                  <p>{t(locationError)}</p>
+                </div>
+              )}
+              <button
+                className="primary-button full-width"
+                onClick={requestDeviceLocation}
+                disabled={locating}
+              >
+                {locating
+                  ? t("Finding your location…")
+                  : t("Allow location access")}
+                <Icon name="pin" size={17} />
+              </button>
+              <button
+                className="outline-button full-width"
+                onClick={skipLocationPrompt}
+                disabled={locating}
+              >
+                {t("Not now")}
+              </button>
+            </>
+          )}
           {modal === "location" && (
             <>
               <div className="location-detail">
                 <Icon name="pin" size={32} />
                 <h3>{currentLocation}</h3>
                 <p>
-                  Choose a simulated location in Japan. No device location is
-                  collected.
+                  {registeredLocationLabel
+                    ? "Use your registered device location or choose a simulated location in Japan."
+                    : "Choose a simulated location in Japan, or share your device location."}
                 </p>
               </div>
+              {locationError && (
+                <div className="info-note warning-note" role="alert">
+                  <Icon name="warning" size={16} />
+                  <p>{t(locationError)}</p>
+                </div>
+              )}
               <div className="demo-location-options">
+                {registeredLocationLabel && account.location && (
+                  <button
+                    className={
+                      currentLocation === registeredLocationLabel
+                        ? "selected"
+                        : ""
+                    }
+                    onClick={() => {
+                      setCurrentLocation(registeredLocationLabel)
+                      setToast("Using your registered device location.")
+                    }}
+                  >
+                    <Icon name="pin" size={17} />
+                    <span>
+                      <strong>{registeredLocationLabel}</strong>
+                      <small>
+                        Registered device location · ±{account.location.accuracy} m
+                      </small>
+                    </span>
+                    {currentLocation === registeredLocationLabel && (
+                      <Icon name="check" size={17} />
+                    )}
+                  </button>
+                )}
+                <button onClick={requestDeviceLocation} disabled={locating}>
+                  <Icon name="locate" size={17} />
+                  <span>
+                    <strong>
+                      {locating
+                        ? t("Finding your location…")
+                        : registeredLocationLabel
+                          ? t("Update my device location")
+                          : t("Share my device location")}
+                    </strong>
+                    <small>Uses your browser's location permission</small>
+                  </span>
+                </button>
                 {japanDemoLocations.map((location) => (
                   <button
                     key={location}

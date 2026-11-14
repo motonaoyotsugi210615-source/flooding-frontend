@@ -6,12 +6,28 @@ function normalizeProfile(profile: unknown): AccountProfile {
   return "standard"
 }
 
+export type RegisteredLocation = {
+  latitude: number
+  longitude: number
+  accuracy: number
+  capturedAt: string
+}
+
+/**
+ * "pending" means the account was just created and the user has not yet been
+ * asked to share their location. Accounts created before this field existed
+ * have no value and are never prompted automatically.
+ */
+export type LocationConsent = "pending" | "granted" | "denied" | "skipped"
+
 export type Account = {
   id: string
   name: string
   email: string
   username: string
   profile: AccountProfile
+  locationConsent?: LocationConsent
+  location?: RegisteredLocation
 }
 
 type StoredAccount = Account & {
@@ -72,6 +88,8 @@ function publicAccount(account: Account): Account {
     email: account.email,
     username: account.username,
     profile: account.profile,
+    locationConsent: account.locationConsent,
+    location: account.location,
   }
 }
 
@@ -186,6 +204,7 @@ export async function createAccount(
     email,
     username,
     profile,
+    locationConsent: "pending",
     salt,
     passwordHash: await hashPassword(password, salt),
   }
@@ -251,6 +270,31 @@ export function updateAccountProfile(
     } catch {
       // Keep the account profile updated even if a stale session is malformed.
     }
+  }
+  return updatedAccount
+}
+
+export function updateAccountLocation(
+  account: Account,
+  locationConsent: LocationConsent,
+  location?: RegisteredLocation,
+): Account {
+  const updatedAccount: Account = {
+    ...account,
+    locationConsent,
+    location: location ?? account.location,
+  }
+  if (account.id !== "demo") {
+    const accounts = getAccounts().map((storedAccount) =>
+      storedAccount.id === account.id
+        ? {
+            ...storedAccount,
+            locationConsent,
+            location: updatedAccount.location,
+          }
+        : storedAccount,
+    )
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
   }
   return updatedAccount
 }

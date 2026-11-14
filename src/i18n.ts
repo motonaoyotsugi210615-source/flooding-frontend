@@ -1,6 +1,25 @@
 export type Language = "en" | "ja"
 
 const japanese: Record<string, string> = {
+  "Share your location?": "位置情報を共有しますか？",
+  "Get alerts for where you are": "現在地に合わせた警報を受け取る",
+  "MizuAlert uses your location to show nearby flood warnings, shelters, and evacuation routes. Your location is saved to your account on this browser only.":
+    "MizuAlertは位置情報を使って、周辺の浸水警報・避難所・避難ルートを表示します。位置情報はこのブラウザ上のアカウントにのみ保存されます。",
+  "Allow location access": "位置情報の利用を許可",
+  "Finding your location…": "現在地を取得しています…",
+  "Not now": "今はしない",
+  "Update my device location": "端末の現在地を更新",
+  "Share my device location": "端末の現在地を共有",
+  "Location services are not supported on this device.":
+    "この端末は位置情報サービスに対応していません。",
+  "Location sharing needs a secure connection (HTTPS or localhost).":
+    "位置情報の共有には安全な接続（HTTPSまたはlocalhost）が必要です。",
+  "We couldn't save your location. Please try again.":
+    "位置情報を保存できませんでした。もう一度お試しください。",
+  "Finding your location took too long. Please try again.":
+    "現在地の取得に時間がかかりすぎました。もう一度お試しください。",
+  "Your location is unavailable right now. Please try again.":
+    "現在地を取得できません。もう一度お試しください。",
   Overview: "概要",
   "Live flood map": "リアルタイム浸水マップ",
   "Evacuation routes": "避難ルート",
